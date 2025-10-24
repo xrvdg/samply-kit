@@ -10,7 +10,19 @@ use serde_json::Value;
 
 fn main() -> Result<(), io::Error> {
     let s = fs::read_to_string("./profile.json")?;
-    let content: Profile = serde_json::from_str(&s)?;
+    let mut content: Profile = serde_json::from_str(&s)?;
+
+    content.exclude_function("try");
+
+    fs::write(
+        "./test_profile.json",
+        serde_json::to_string_pretty(&content)?,
+    )?;
+
+    Ok(())
+}
+
+fn summary(content: &Profile) {
     println!("{content:?}");
 
     content.threads[0]
@@ -54,73 +66,6 @@ fn main() -> Result<(), io::Error> {
                 content.threads[0].stack_table.path(*stack_id)
             )
         });
-
-    println!("\nexclude func table");
-    let exclude_func_table: HashSet<_> = content.threads[0]
-        .func_table
-        .name
-        .iter()
-        .positions(|id| content.shared.string_array[*id].contains("try"))
-        .collect();
-
-    println!("{exclude_func_table:?}");
-
-    println!("\nexclude frame table");
-    let exclude_frame_table: HashSet<_> = content.threads[0]
-        .frame_table
-        .func
-        .iter()
-        .positions(|id| exclude_func_table.contains(id))
-        .collect();
-
-    println!("{exclude_frame_table:?}");
-
-    println!("\nexclude stack table");
-    let exclude_stack_table: HashSet<_> = content.threads[0]
-        .stack_table
-        .frame
-        .iter()
-        .positions(|id| exclude_frame_table.contains(id))
-        .collect();
-
-    println!("{exclude_stack_table:?}");
-
-    let mut new_content = content.clone();
-
-    let new_thread = &mut new_content.threads[0];
-
-    let new_stack = &mut new_thread.stack_table;
-
-    new_stack.exclude(&exclude_stack_table);
-
-    println!("\nnew stack table");
-    new_stack
-        .paths()
-        .iter()
-        .enumerate()
-        .for_each(|(i, path)| println!("{i}: {:?}", path));
-
-    new_thread.fixup_samples(&exclude_stack_table);
-
-    println!("\nnew sample table");
-    new_thread
-        .samples
-        .stack
-        .iter()
-        .enumerate()
-        .for_each(|(i, stack_id)| {
-            println!(
-                "{i}: {stack_id}: {:?}",
-                new_thread.stack_table.path(*stack_id)
-            )
-        });
-
-    fs::write(
-        "./test_profile.json",
-        serde_json::to_string_pretty(&new_content)?,
-    )?;
-
-    Ok(())
 }
 
 impl StackTable {
@@ -141,6 +86,9 @@ impl StackTable {
         p
     }
 
+    // TODO tree paths?
+
+    /// Rewrites the prefix attribute until the point a non-excluded parent is reached
     fn exclude_parent(&mut self, id: IndexToStackTable, excluded: &HashSet<IndexToStackTable>) {
         if let Some(prefix_id) = self.prefix[id] {
             if excluded.contains(&prefix_id) {
@@ -150,6 +98,8 @@ impl StackTable {
         }
     }
 
+    /// Rewrite such that non-excluded frames do not point at excluded frames anymore.
+    /// Excluded frames themselves stay included to not mess up the indexing and they act as a fast way to
     fn exclude(&mut self, excluded: &HashSet<IndexToStackTable>) {
         for i in 0..self.length {
             self.exclude_parent(i, &excluded);
@@ -158,6 +108,35 @@ impl StackTable {
 }
 
 impl Thread {
+    fn exclude_function(&mut self, exclude_string_table: &HashSet<usize>) {
+        let exclude_func_table: HashSet<_> = self
+            .func_table
+            .name
+            .iter()
+            .positions(|id| exclude_string_table.contains(id))
+            .collect();
+
+        let exclude_frame_table: HashSet<_> = self
+            .frame_table
+            .func
+            .iter()
+            .positions(|id| exclude_func_table.contains(id))
+            .collect();
+
+        let exclude_stack_table: HashSet<_> = self
+            .stack_table
+            .frame
+            .iter()
+            .positions(|id| exclude_frame_table.contains(id))
+            .collect();
+
+        let new_stack = &mut self.stack_table;
+
+        new_stack.exclude(&exclude_stack_table);
+
+        self.fixup_samples(&exclude_stack_table);
+    }
+
     fn fixup_samples(&mut self, excluded: &HashSet<IndexToStackTable>) {
         for s in &mut self.samples.stack {
             if excluded.contains(s) {
@@ -165,6 +144,21 @@ impl Thread {
                     *s = prefix
                 }
             }
+        }
+    }
+}
+
+impl Profile {
+    fn exclude_function(&mut self, function_wildcard: &str) {
+        let exclude_string_table: HashSet<_> = self
+            .shared
+            .string_array
+            .iter()
+            .positions(|string| string.contains(function_wildcard))
+            .collect();
+
+        for thread in &mut self.threads {
+            thread.exclude_function(&exclude_string_table);
         }
     }
 }
