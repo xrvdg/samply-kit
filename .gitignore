@@ -1,0 +1,5 @@
+target/
+*.json.gz
+*.json
+*.dot
+*.svg
