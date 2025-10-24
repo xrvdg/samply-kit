@@ -22,52 +22,6 @@ fn main() -> Result<(), io::Error> {
     Ok(())
 }
 
-fn summary(content: &Profile) {
-    println!("{content:?}");
-
-    content.threads[0]
-        .func_table
-        .name
-        .iter()
-        .enumerate()
-        .for_each(|(i, id)| println!("{i} {}: {}", id, content.shared.string_array[*id]));
-
-    println!("\nframe table");
-    content.threads[0]
-        .frame_table
-        .func
-        .iter()
-        .enumerate()
-        .for_each(|(i, func_id)| {
-            println!(
-                "{i} {}: {}",
-                func_id, content.shared.string_array[content.threads[0].func_table.name[*func_id]]
-            )
-        });
-
-    println!("\nstack table");
-    content.threads[0]
-        .stack_table
-        .paths()
-        .iter()
-        .enumerate()
-        .for_each(|(i, path)| println!("{i}: {:?}", path));
-
-    println!("\nsample table");
-    content.threads[0]
-        .samples
-        .stack
-        .iter()
-        .enumerate()
-        .for_each(|(i, stack_id)| {
-            println!(
-                "{i}: {stack_id} \t weight: {:?} \t path: {:?}",
-                content.threads[0].samples.weight[i],
-                content.threads[0].stack_table.path(*stack_id)
-            )
-        });
-}
-
 impl StackTable {
     fn path(&self, id: IndexToStackTable) -> Vec<usize> {
         let mut p = match self.prefix[id] {
@@ -163,6 +117,11 @@ impl Profile {
     }
 }
 
+type IndexToStackTable = usize;
+type IndexToFrameTable = usize;
+type IndexToFuncTable = usize;
+type IndexToStringTable = usize;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Profile {
     threads: Vec<Thread>,
@@ -205,11 +164,6 @@ struct FrameTable {
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
-
-type IndexToStackTable = usize;
-type IndexToFrameTable = usize;
-type IndexToFuncTable = usize;
-type IndexToStringTable = usize;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct FuncTable {
