@@ -9,13 +9,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 fn main() -> Result<(), io::Error> {
-    let s = fs::read_to_string("./profile.json")?;
+    let s = fs::read_to_string("./profile_prove.json")?;
     let mut content: Profile = serde_json::from_str(&s)?;
 
-    content.exclude_function("try");
+    content.exclude_function("rayon");
+
+    // statistics?
+    println!("weights: {}", content.threads[0].samples.total_weights());
 
     fs::write(
-        "./test_profile.json",
+        "./profile_prove_flattened.json",
         serde_json::to_string_pretty(&content)?,
     )?;
 
@@ -42,12 +45,16 @@ impl StackTable {
 
     // TODO tree paths?
 
-    /// Rewrites the prefix attribute until the point a non-excluded parent is reached
-    fn exclude_parent(&mut self, id: IndexToStackTable, excluded: &HashSet<IndexToStackTable>) {
+    /// Squash out excluded prefixes.
+    fn squash_excluded_parents(
+        &mut self,
+        id: IndexToStackTable,
+        excluded: &HashSet<IndexToStackTable>,
+    ) {
         if let Some(prefix_id) = self.prefix[id] {
             if excluded.contains(&prefix_id) {
                 self.prefix[id] = self.prefix[prefix_id];
-                self.exclude_parent(id, excluded);
+                self.squash_excluded_parents(id, excluded);
             }
         }
     }
@@ -56,7 +63,7 @@ impl StackTable {
     /// Excluded frames themselves stay included to not mess up the indexing and they act as a fast way to
     fn exclude(&mut self, excluded: &HashSet<IndexToStackTable>) {
         for i in 0..self.length {
-            self.exclude_parent(i, &excluded);
+            self.squash_excluded_parents(i, &excluded);
         }
     }
 }
@@ -88,10 +95,13 @@ impl Thread {
 
         new_stack.exclude(&exclude_stack_table);
 
-        self.fixup_samples(&exclude_stack_table);
+        self.reattribute_samples(&exclude_stack_table);
     }
 
-    fn fixup_samples(&mut self, excluded: &HashSet<IndexToStackTable>) {
+    /// Samples that point to an excluded stack entry needs to be reassigned to its parent.
+    ///
+    /// Run this after stack.exclude to prevent reassing the sample to another excluded stack entry
+    fn reattribute_samples(&mut self, excluded: &HashSet<IndexToStackTable>) {
         for s in &mut self.samples.stack {
             if excluded.contains(s) {
                 if let Some(prefix) = self.stack_table.prefix[*s] {
@@ -113,6 +123,16 @@ impl Profile {
 
         for thread in &mut self.threads {
             thread.exclude_function(&exclude_string_table);
+        }
+    }
+}
+
+impl SampleTable {
+    fn total_weights(&self) -> usize {
+        match &self.weight {
+            Some(weights) => weights.iter().sum(),
+            // Weights is assumed to be 1
+            None => self.stack.len(),
         }
     }
 }
@@ -146,7 +166,7 @@ struct Thread {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SampleTable {
     stack: Vec<IndexToStackTable>,
-    weight: Vec<Option<usize>>,
+    weight: Option<Vec<usize>>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
