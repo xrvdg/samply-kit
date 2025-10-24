@@ -3,21 +3,14 @@ name = "profile-preprocessor"
 version = "0.1.0"
 edition = "2021"
 
+ [[bin]]
+name = "tester"
+path = "src/tester.rs"
+
 [[bin]]
-name = "profile-preprocessor"
+name = "preprocess"
 path = "src/main.rs"
 
-[[bin]]
-name = "profile-to-graphviz"
-path = "src/graphviz.rs"
-
-[[bin]]
-name = "trace"
-path = "src/trace.rs"
-
-[[bin]]
-name = "filter"
-path = "src/filter.rs"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

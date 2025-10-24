@@ -1,211 +1,201 @@
-use anyhow::{Context, Result};
+use std::{
+    collections::{BTreeMap, HashSet},
+    fs::{self},
+    io,
+};
+
+use itertools::{self, Itertools};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use serde_json::Value;
 
-#[derive(Debug, Deserialize, Serialize)]
-struct Profile {
-    meta: serde_json::Value,
-    libs: Vec<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pages: Option<Vec<serde_json::Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    counters: Option<Vec<serde_json::Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    profilerOverhead: Option<Vec<serde_json::Value>>,
-    shared: SharedData,
-    threads: Vec<Thread>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    profilingLog: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    profileGatheringLog: Option<serde_json::Value>,
+fn main() -> Result<(), io::Error> {
+    let s = fs::read_to_string("./profile_prove.json")?;
+    let mut content: Profile = serde_json::from_str(&s)?;
+
+    content.exclude_function("rayon");
+
+    // statistics?
+    println!("weights: {}", content.threads[0].samples.total_weights());
+
+    fs::write(
+        "./profile_prove_flattened.json",
+        serde_json::to_string_pretty(&content)?,
+    )?;
+
+    Ok(())
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct SharedData {
-    stringArray: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sources: Option<serde_json::Value>,
-}
+impl StackTable {
+    fn path(&self, id: IndexToStackTable) -> Vec<usize> {
+        let mut p = match self.prefix[id] {
+            Some(prefix_id) => self.path(prefix_id),
+            None => Vec::new(),
+        };
+        p.push(self.frame[id]);
+        p
+    }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct Thread {
-    #[serde(flatten)]
-    other_fields: HashMap<String, serde_json::Value>,
-    stackTable: StackTable,
-    frameTable: FrameTable,
-    funcTable: FuncTable,
-    samples: SamplesTable,
-}
+    fn paths(&self) -> Vec<Vec<usize>> {
+        let mut p = Vec::with_capacity(self.length);
+        for i in 0..self.length {
+            p.push(self.path(i));
+        }
+        p
+    }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct StackTable {
-    frame: Vec<usize>,
-    prefix: Vec<Option<usize>>,
-    length: usize,
-}
+    // TODO tree paths?
 
-#[derive(Debug, Deserialize, Serialize)]
-struct FrameTable {
-    #[serde(flatten)]
-    fields: HashMap<String, serde_json::Value>,
-    func: Vec<usize>,
-    length: usize,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct FuncTable {
-    #[serde(flatten)]
-    fields: HashMap<String, serde_json::Value>,
-    name: Vec<usize>,
-    length: usize,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct SamplesTable {
-    #[serde(flatten)]
-    fields: HashMap<String, serde_json::Value>,
-    stack: Vec<Option<usize>>,
-    length: usize,
-}
-
-impl Profile {
-    fn flatten_rayon_frames(&mut self) {
-        let string_array = &self.shared.stringArray;
-
-        for thread in &mut self.threads {
-            // Find frames that reference rayon functions
-            let rayon_frames = thread.find_rayon_frames(string_array);
-
-            if rayon_frames.is_empty() {
-                continue;
+    /// Squash out excluded prefixes.
+    fn squash_excluded_parents(
+        &mut self,
+        id: IndexToStackTable,
+        excluded: &HashSet<IndexToStackTable>,
+    ) {
+        if let Some(prefix_id) = self.prefix[id] {
+            if excluded.contains(&prefix_id) {
+                self.prefix[id] = self.prefix[prefix_id];
+                self.squash_excluded_parents(id, excluded);
             }
+        }
+    }
 
-            println!(
-                "Thread '{}': Found {} rayon frames to flatten",
-                thread
-                    .other_fields
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown"),
-                rayon_frames.len()
-            );
-
-            // Build a mapping from old stack indices to new stack indices
-            thread.flatten_stacks(&rayon_frames);
+    /// Rewrite such that non-excluded frames do not point at excluded frames anymore.
+    /// Excluded frames themselves stay included to not mess up the indexing and they act as a fast way to
+    fn exclude(&mut self, excluded: &HashSet<IndexToStackTable>) {
+        for i in 0..self.length {
+            self.squash_excluded_parents(i, &excluded);
         }
     }
 }
 
 impl Thread {
-    fn find_rayon_frames(&self, string_array: &[String]) -> Vec<usize> {
-        let mut rayon_frames = Vec::new();
+    fn exclude_function(&mut self, exclude_string_table: &HashSet<usize>) {
+        let exclude_func_table: HashSet<_> = self
+            .func_table
+            .name
+            .iter()
+            .positions(|id| exclude_string_table.contains(id))
+            .collect();
 
-        for (frame_idx, &func_idx) in self.frameTable.func.iter().enumerate() {
-            if func_idx < self.funcTable.name.len() {
-                let name_idx = self.funcTable.name[func_idx];
-                if name_idx < string_array.len() {
-                    let name = &string_array[name_idx];
-                    if name.contains("rayon") {
-                        rayon_frames.push(frame_idx);
-                        println!("  Frame {}: {}", frame_idx, name);
-                    }
-                }
-            }
-        }
+        let exclude_frame_table: HashSet<_> = self
+            .frame_table
+            .func
+            .iter()
+            .positions(|id| exclude_func_table.contains(id))
+            .collect();
 
-        rayon_frames
+        let exclude_stack_table: HashSet<_> = self
+            .stack_table
+            .frame
+            .iter()
+            .positions(|id| exclude_frame_table.contains(id))
+            .collect();
+
+        let new_stack = &mut self.stack_table;
+
+        new_stack.exclude(&exclude_stack_table);
+
+        self.reattribute_samples(&exclude_stack_table);
     }
 
-    fn flatten_stacks(&mut self, rayon_frames: &[usize]) {
-        // Build a set for quick lookup
-        let rayon_frame_set: std::collections::HashSet<usize> =
-            rayon_frames.iter().copied().collect();
-
-        // Helper function to find the non-rayon ancestor of a stack
-        let find_non_rayon_ancestor = |mut stack_idx: usize| -> Option<usize> {
-            loop {
-                let frame_idx = self.stackTable.frame[stack_idx];
-                if !rayon_frame_set.contains(&frame_idx) {
-                    return Some(stack_idx);
-                }
-                match self.stackTable.prefix[stack_idx] {
-                    Some(prefix) => stack_idx = prefix,
-                    None => return None, // Root stack is a rayon frame
+    /// Samples that point to an excluded stack entry needs to be reassigned to its parent.
+    ///
+    /// Run this after stack.exclude to prevent reassing the sample to another excluded stack entry
+    fn reattribute_samples(&mut self, excluded: &HashSet<IndexToStackTable>) {
+        for s in &mut self.samples.stack {
+            if excluded.contains(s) {
+                if let Some(prefix) = self.stack_table.prefix[*s] {
+                    *s = prefix
                 }
             }
-        };
-
-        // Create a new stack table without rayon frames
-        let mut old_to_new: HashMap<usize, usize> = HashMap::new();
-        let mut new_frames = Vec::new();
-        let mut new_prefixes_old_idx: Vec<Option<usize>> = Vec::new();
-
-        // First pass: copy non-rayon stacks and track mapping
-        for old_idx in 0..self.stackTable.length {
-            let frame_idx = self.stackTable.frame[old_idx];
-
-            if !rayon_frame_set.contains(&frame_idx) {
-                let new_idx = new_frames.len();
-                old_to_new.insert(old_idx, new_idx);
-                new_frames.push(frame_idx);
-                new_prefixes_old_idx.push(self.stackTable.prefix[old_idx]);
-            }
         }
-
-        // Second pass: fix up prefixes, skipping over rayon frames
-        let mut new_prefixes = Vec::new();
-        for old_prefix_opt in new_prefixes_old_idx {
-            let new_prefix = match old_prefix_opt {
-                Some(old_prefix_idx) => {
-                    // Find the first non-rayon ancestor
-                    find_non_rayon_ancestor(old_prefix_idx)
-                        .and_then(|ancestor_old_idx| old_to_new.get(&ancestor_old_idx).copied())
-                }
-                None => None,
-            };
-            new_prefixes.push(new_prefix);
-        }
-
-        // Update samples
-        for sample_stack in &mut self.samples.stack {
-            *sample_stack = sample_stack.and_then(|old_idx| {
-                find_non_rayon_ancestor(old_idx)
-                    .and_then(|ancestor_old_idx| old_to_new.get(&ancestor_old_idx).copied())
-            });
-        }
-
-        // Update the stack table
-        let old_length = self.stackTable.length;
-        let new_length = new_prefixes.len();
-        self.stackTable.frame = new_frames;
-        self.stackTable.prefix = new_prefixes;
-        self.stackTable.length = new_length;
-
-        println!("  Reduced stacks from {} to {}", old_length, new_length);
     }
 }
 
-fn main() -> Result<()> {
-    println!("Reading profile.json...");
-    let input_file = File::open("profile.json").context("Failed to open profile.json")?;
-    let reader = BufReader::new(input_file);
+impl Profile {
+    fn exclude_function(&mut self, function_wildcard: &str) {
+        let exclude_string_table: HashSet<_> = self
+            .shared
+            .string_array
+            .iter()
+            .positions(|string| string.contains(function_wildcard))
+            .collect();
 
-    println!("Parsing JSON...");
-    let mut profile: Profile =
-        serde_json::from_reader(reader).context("Failed to parse profile.json")?;
+        for thread in &mut self.threads {
+            thread.exclude_function(&exclude_string_table);
+        }
+    }
+}
 
-    println!("Flattening rayon frames...");
-    profile.flatten_rayon_frames();
+impl SampleTable {
+    fn total_weights(&self) -> usize {
+        match &self.weight {
+            Some(weights) => weights.iter().sum(),
+            // Weights is assumed to be 1
+            None => self.stack.len(),
+        }
+    }
+}
 
-    println!("Writing profile_flattened.json...");
-    let output_file =
-        File::create("profile_flattened.json").context("Failed to create output file")?;
-    let writer = BufWriter::new(output_file);
+type IndexToStackTable = usize;
+type IndexToFrameTable = usize;
+type IndexToFuncTable = usize;
+type IndexToStringTable = usize;
 
-    serde_json::to_writer(writer, &profile).context("Failed to write output JSON")?;
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Profile {
+    threads: Vec<Thread>,
+    shared: ProfileSharedData,
+    #[serde(flatten)]
+    other: BTreeMap<String, Value>,
+}
 
-    println!("Done! Output written to profile_flattened.json");
-    Ok(())
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Thread {
+    samples: SampleTable,
+    #[serde(rename = "stackTable")]
+    stack_table: StackTable,
+    #[serde(rename = "frameTable")]
+    frame_table: FrameTable,
+    #[serde(rename = "funcTable")]
+    func_table: FuncTable,
+    #[serde(flatten)]
+    other: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct SampleTable {
+    stack: Vec<IndexToStackTable>,
+    weight: Option<Vec<usize>>,
+    #[serde(flatten)]
+    other: BTreeMap<String, Value>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct StackTable {
+    prefix: Vec<Option<IndexToStackTable>>,
+    frame: Vec<IndexToFrameTable>,
+    length: usize,
+    #[serde(flatten)]
+    other: BTreeMap<String, Value>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct FrameTable {
+    func: Vec<IndexToFuncTable>,
+    #[serde(flatten)]
+    other: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct FuncTable {
+    name: Vec<IndexToStringTable>,
+    #[serde(flatten)]
+    other: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ProfileSharedData {
+    #[serde(rename = "stringArray")]
+    string_array: Vec<String>,
+    #[serde(flatten)]
+    other: BTreeMap<String, Value>,
 }
