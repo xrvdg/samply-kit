@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use itertools::{self, Itertools};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -42,7 +43,7 @@ impl StackTable {
     /// Excluded frames themselves stay included to not mess up the indexing and they act as a fast way to
     fn exclude(&mut self, excluded: &HashSet<IndexToStackTable>) {
         for i in 0..self.length {
-            self.squash_excluded_parents(i, &excluded);
+            self.squash_excluded_parents(i, excluded);
         }
     }
 }
@@ -70,9 +71,7 @@ impl Thread {
             .positions(|id| exclude_frame_table.contains(id))
             .collect();
 
-        let new_stack = &mut self.stack_table;
-
-        new_stack.exclude(&exclude_stack_table);
+        self.stack_table.exclude(&exclude_stack_table);
 
         self.reattribute_samples(&exclude_stack_table);
     }
@@ -92,12 +91,15 @@ impl Thread {
 }
 
 impl Profile {
-    pub fn exclude_function(&mut self, function_wildcard: &str) {
+    pub fn exclude_function(&mut self, regex: &str) {
+        // TODO friendlier error handling
+        let r = Regex::new(regex).expect("Invalid regex");
+
         let exclude_string_table: HashSet<_> = self
             .shared
             .string_array
             .iter()
-            .positions(|string| string.contains(function_wildcard))
+            .positions(|string| r.is_match(string))
             .collect();
 
         for thread in &mut self.threads {
