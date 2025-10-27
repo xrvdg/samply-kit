@@ -41,7 +41,7 @@ impl Thread {
     // We need edges
     // For now frame is mostly an indirection
     // Building the path this way is fine and then grouping it by 2
-    fn path(&self, id: StackIdx) -> Vec<FuncIdx> {
+    pub fn path(&self, id: StackIdx) -> Vec<FuncIdx> {
         let stack = &self.stack_table;
         let frame = &self.frame_table;
         let mut p = match stack.prefix[id] {
@@ -53,7 +53,7 @@ impl Thread {
         p
     }
 
-    fn paths(&self) -> Vec<Vec<FuncIdx>> {
+    pub fn paths(&self) -> Vec<Vec<FuncIdx>> {
         let stack = &self.stack_table;
         let mut p = Vec::with_capacity(stack.length);
         for i in 0..stack.length {
@@ -144,7 +144,7 @@ impl Profile {
 //TODO remove inners
 
 impl SampleTable {
-    fn total_weight(&self) -> usize {
+    pub fn total_weight(&self) -> usize {
         match &self.weight {
             Some(weights) => weights.inner.iter().sum(),
             // Weights is assumed to be 1
@@ -155,21 +155,22 @@ impl SampleTable {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Profile {
-    threads: Vec<Thread>,
-    shared: ProfileSharedData,
+    pub threads: Vec<Thread>,
+    pub shared: ProfileSharedData,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct Thread {
-    samples: SampleTable,
+pub struct Thread {
+    pub samples: SampleTable,
     #[serde(rename = "stackTable")]
-    stack_table: StackTable,
+    pub stack_table: StackTable,
     #[serde(rename = "frameTable")]
     frame_table: FrameTable,
     #[serde(rename = "funcTable")]
-    func_table: FuncTable,
+    pub func_table: FuncTable,
+    pub name: String,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
@@ -177,37 +178,37 @@ struct Thread {
 // TODO make this a macro?
 // Better naming
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
-struct IndexSampleTable;
+pub struct IndexSampleTable;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
-struct IndexStackTable;
+pub struct IndexStackTable;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
-struct IndexFrameTable;
+pub struct IndexFrameTable;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
-struct IndexFuncTable;
+pub struct IndexFuncTable;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
-struct IndexStringTable;
+pub struct IndexStringTable;
 
 // type SampleIdx = Id<IndexSampleTable>;
-type StackIdx = Id<IndexStackTable>;
-type FrameIdx = Id<IndexFrameTable>;
-type FuncIdx = Id<IndexFuncTable>;
-type StringIdx = Id<IndexStringTable>;
+pub type StackIdx = Id<IndexStackTable>;
+pub type FrameIdx = Id<IndexFrameTable>;
+pub type FuncIdx = Id<IndexFuncTable>;
+pub type StringIdx = Id<IndexStringTable>;
 
-type SampleVec<T> = TypedVec<IndexSampleTable, T>;
-type StackVec<T> = TypedVec<IndexStackTable, T>;
-type FrameVec<T> = TypedVec<IndexFrameTable, T>;
-type FuncVec<T> = TypedVec<IndexFuncTable, T>;
-type StringVec<T> = TypedVec<IndexStringTable, T>;
+pub type SampleVec<T> = TypedVec<IndexSampleTable, T>;
+pub type StackVec<T> = TypedVec<IndexStackTable, T>;
+pub type FrameVec<T> = TypedVec<IndexFrameTable, T>;
+pub type FuncVec<T> = TypedVec<IndexFuncTable, T>;
+pub type StringVec<T> = TypedVec<IndexStringTable, T>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct SampleTable {
-    stack: SampleVec<StackIdx>,
-    weight: Option<SampleVec<usize>>,
+pub struct SampleTable {
+    pub stack: SampleVec<StackIdx>,
+    pub weight: Option<SampleVec<usize>>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct StackTable {
+pub struct StackTable {
     prefix: StackVec<Option<StackIdx>>,
     frame: StackVec<FrameIdx>,
     length: usize,
@@ -222,16 +223,16 @@ struct FrameTable {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct FuncTable {
-    name: FuncVec<StringIdx>,
+pub struct FuncTable {
+    pub name: FuncVec<StringIdx>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct ProfileSharedData {
+pub struct ProfileSharedData {
     #[serde(rename = "stringArray")]
-    string_array: StringVec<String>,
+    pub string_array: StringVec<String>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
@@ -240,19 +241,21 @@ struct ProfileSharedData {
 // TODO find name of what kind of structure this is.
 // two typed
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct TypedVec<I, T> {
-    inner: Vec<T>,
+#[serde(transparent)]
+pub struct TypedVec<I, T> {
+    pub inner: Vec<T>,
     _marker: PhantomData<I>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Copy, Eq, Hash)]
-struct Id<I> {
+#[serde(transparent)]
+pub struct Id<I> {
     idx: usize,
     _marker: PhantomData<I>,
 }
 
 impl<I> Id<I> {
-    fn new(id: usize) -> Id<I> {
+    pub fn new(id: usize) -> Id<I> {
         Id {
             idx: id,
             _marker: PhantomData,
