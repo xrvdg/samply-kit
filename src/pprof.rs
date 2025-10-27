@@ -4,15 +4,48 @@ use std::{
     io::{self, BufWriter, Write},
 };
 
+use argh::FromArgs;
 use itertools::Itertools;
 use profile_preprocessor::{Id, Profile};
 
+#[derive(FromArgs, Debug)]
+#[argh(description = "Performan analysis on samply's profile")]
+struct Args {
+    #[argh(positional)]
+    file: String,
+    #[argh(subcommand)]
+    cmd: Command,
+}
+
+#[derive(FromArgs, Debug)]
+#[argh(subcommand)]
+enum Command {
+    Lookup(Lookup),
+    Statistics(Statistics),
+}
+
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "stat")]
+#[argh(description = "")]
+struct Statistics {}
+
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "lookup")]
+#[argh(description = "")]
+struct Lookup {
+    #[argh(positional)]
+    id: usize,
+}
+
 fn main() -> Result<(), io::Error> {
-    let s = fs::read_to_string("./profile_prove_flattened_2.json")?;
+    let args: Args = argh::from_env();
+    let s = fs::read_to_string(args.file)?;
     let profile: Profile = serde_json::from_str(&s)?;
 
-    statistic(&profile);
-    reverse_search(&profile, 4645);
+    match args.cmd {
+        Command::Lookup(lookup) => reverse_search(&profile, lookup.id),
+        Command::Statistics(_statistics) => statistic(&profile),
+    }
 
     Ok(())
 }
@@ -25,7 +58,7 @@ fn reverse_search(profile: &Profile, string_idx: usize) {
         .enumerate()
     {
         trace.reverse();
-        print!("{i}: ({count}) ");
+        print!("{i}: #{count} ");
         for func in trace {
             print!("{} -> ", profile.shared.string_array[func]);
         }
@@ -47,7 +80,7 @@ fn statistic(profile: &Profile) {
                 .take(n)
                 .for_each(|(k, v)| {
                     println!(
-                        "{}({}%): {} {}",
+                        "#{}({}%): {} {}",
                         v,
                         v * 100 / count,
                         *k,
