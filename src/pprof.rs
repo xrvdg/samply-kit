@@ -24,10 +24,10 @@ fn statistic(profile: &Profile) {
         let count = thread.total_samples();
         let (own, cumulative) = thread.sample_count();
 
-        let top15 = |it: HashMap<_, usize>| {
+        let top = |n, it: HashMap<_, usize>| {
             it.iter()
                 .sorted_by(|a, b| b.1.cmp(a.1))
-                .take(15)
+                .take(n)
                 .for_each(|(k, v)| {
                     println!(
                         "{}({}%): {}",
@@ -38,11 +38,11 @@ fn statistic(profile: &Profile) {
                 });
         };
 
-        println!("Own");
-        top15(own);
+        println!("Self");
+        top(25, own);
 
         println!("\nCumulative");
-        top15(cumulative);
+        top(25, cumulative);
         println!();
     }
 }
