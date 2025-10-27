@@ -46,6 +46,8 @@ struct Edge {
 }
 
 // From I to T
+// TODO find name of what kind of structure this is.
+// two typed
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct TypedVec<I, T> {
     inner: Vec<T>,
@@ -136,7 +138,7 @@ impl Thread {
             .inner
             .iter()
             .positions(|id| exclude_func_table.contains(id))
-            .map(|pos| Id::new(pos))
+            .map(Id::new)
             .collect();
 
         let exclude_stack_table: HashSet<Id<IndexStackTable>> = self
@@ -145,7 +147,7 @@ impl Thread {
             .inner
             .iter()
             .positions(|id| exclude_frame_table.contains(id))
-            .map(|pos| Id::new(pos))
+            .map(Id::new)
             .collect();
 
         self.stack_table.exclude(&exclude_stack_table);
@@ -197,14 +199,13 @@ impl Profile {
 impl SampleTable {
     fn total_weight(&self) -> usize {
         match &self.weight {
-            Some(weights) => weights.iter().sum(),
+            Some(weights) => weights.inner.iter().sum(),
             // Weights is assumed to be 1
             None => self.stack.inner.len(),
         }
     }
 }
 
-type IndexToFrameTable = usize;
 type IndexToFuncTable = usize;
 type IndexToStringTable = usize;
 
@@ -239,8 +240,7 @@ struct IndexFrameTable;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SampleTable {
     stack: TypedVec<IndexSampleTable, Id<IndexStackTable>>,
-    // TODO typedvec<IndexSampleTable, usize>
-    weight: Option<Vec<usize>>,
+    weight: Option<TypedVec<IndexSampleTable, usize>>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
