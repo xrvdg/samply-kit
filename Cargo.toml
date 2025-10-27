@@ -11,6 +11,10 @@ path = "src/tester.rs"
 name = "preprocess"
 path = "src/main.rs"
 
+[[bin]]
+name = "pprof"
+path = "src/pprof.rs"
+
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

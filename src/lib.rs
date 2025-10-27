@@ -36,19 +36,6 @@ impl StackTable {
     }
 }
 
-// struct Edge {
-//     caller: IndexToFuncTable,
-//     callee: IndexToFuncTable,
-// }
-
-// Can I make an index over the table and then do the access?
-// Feels closer to what you know
-// But what I really want is a typed vec
-
-// TypedVec<
-// How to make it feel just like a vec? Index with the type and an as_ref?
-// but the as ref would allow for normal vec
-
 impl Thread {
     // Isn't stack structure more what we need?
     // We need edges
