@@ -6,25 +6,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 impl StackTable {
-    fn path(&self, id: IndexToStackTable) -> Vec<usize> {
-        let mut p = match self.prefix[id] {
-            Some(prefix_id) => self.path(prefix_id),
-            None => Vec::new(),
-        };
-        p.push(self.frame[id]);
-        p
-    }
-
-    fn paths(&self) -> Vec<Vec<usize>> {
-        let mut p = Vec::with_capacity(self.length);
-        for i in 0..self.length {
-            p.push(self.path(i));
-        }
-        p
-    }
-
-    // TODO tree paths?
-
     /// Squash out excluded prefixes.
     fn squash_excluded_parents(
         &mut self,
@@ -48,7 +29,48 @@ impl StackTable {
     }
 }
 
+struct Edge {
+    caller: IndexToFuncTable,
+    callee: IndexToFuncTable,
+}
+
+// Can I make an index over the table and then do the access?
+// Feels closer to what you know
+// But what I really want is a typed vec
+
+// TypedVec<
+// How to make it feel just like a vec? Index with the type and an as_ref?
+// but the as ref would allow for normal vec
+
 impl Thread {
+    // Isn't stack structure more what we need?
+    // We need edges
+    // For now frame is mostly an indirection
+    // Building the path this way is fine and then grouping it by 2
+    fn path(&self, id: IndexToStackTable) -> Vec<IndexToFuncTable> {
+        let stack = &self.stack_table;
+        let frame = &self.frame_table;
+        let mut p = match stack.prefix[id] {
+            Some(prefix_id) => self.path(prefix_id),
+            None => Vec::new(),
+        };
+        p.push(frame.func[stack.frame[id]]);
+        p
+    }
+
+    fn paths(&self) -> Vec<Vec<IndexToFuncTable>> {
+        let stack = &self.stack_table;
+        let mut p = Vec::with_capacity(stack.length);
+        for i in 0..stack.length {
+            p.push(self.path(i));
+        }
+        p
+    }
+
+    // fn stack_to_func(&self, id: IndexToStackTable) -> Vec<IndexToFuncTable> {}
+
+    // TODO tree paths?
+
     fn exclude_function(&mut self, exclude_string_table: &HashSet<IndexToStringTable>) {
         let exclude_func_table: HashSet<_> = self
             .func_table
