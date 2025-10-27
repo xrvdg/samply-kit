@@ -133,8 +133,10 @@ impl Thread {
         let exclude_frame_table: HashSet<_> = self
             .frame_table
             .func
+            .inner
             .iter()
             .positions(|id| exclude_func_table.contains(id))
+            .map(|pos| Id::new(pos))
             .collect();
 
         let exclude_stack_table: HashSet<Id<IndexStackTable>> = self
@@ -231,10 +233,13 @@ struct Thread {
 struct IndexSampleTable;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
 struct IndexStackTable;
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
+struct IndexFrameTable;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SampleTable {
     stack: TypedVec<IndexSampleTable, Id<IndexStackTable>>,
+    // TODO typedvec<IndexSampleTable, usize>
     weight: Option<Vec<usize>>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
@@ -242,14 +247,14 @@ struct SampleTable {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct StackTable {
     prefix: TypedVec<IndexStackTable, Option<Id<IndexStackTable>>>,
-    frame: TypedVec<IndexStackTable, IndexToFrameTable>,
+    frame: TypedVec<IndexStackTable, Id<IndexFrameTable>>,
     length: usize,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct FrameTable {
-    func: Vec<IndexToFuncTable>,
+    func: TypedVec<IndexFrameTable, IndexToFuncTable>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
