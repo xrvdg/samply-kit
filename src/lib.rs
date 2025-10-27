@@ -1,7 +1,9 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    fmt,
     marker::PhantomData,
     ops::{Index, IndexMut},
+    path::Display,
 };
 
 use itertools::{self, Itertools};
@@ -41,7 +43,8 @@ impl Thread {
     // We need edges
     // For now frame is mostly an indirection
     // Building the path this way is fine and then grouping it by 2
-    pub fn path(&self, id: StackIdx) -> Vec<FuncIdx> {
+    // Using StringIdx rather than FunctionIdx as it is stable across threads
+    pub fn path(&self, id: StackIdx) -> Vec<StringIdx> {
         let stack = &self.stack_table;
         let frame = &self.frame_table;
         let mut p = match stack.prefix[id] {
@@ -49,7 +52,7 @@ impl Thread {
             None => Vec::new(),
         };
         let frame_id = stack.frame[id];
-        p.push(frame.func[frame_id]);
+        p.push(self.func_table.name[frame.func[frame_id]]);
         p
     }
 
@@ -63,15 +66,12 @@ impl Thread {
         let mut cumulative = HashMap::new();
         let mut own = HashMap::new();
         for (id, stack) in self.samples.stack.inner.iter().enumerate() {
+            // Shouldn't have to check the existence of weight everytime
             let add = match &self.samples.weight {
                 Some(weigth_vec) => weigth_vec[Id::new(id)],
                 None => 1,
             };
-            let path: Vec<_> = self
-                .path(*stack)
-                .into_iter()
-                .map(|func_idx| self.func_table.name[func_idx])
-                .collect();
+            let path: Vec<_> = self.path(*stack);
 
             if let Some(last) = path.last().copied() {
                 *own.entry(last).or_insert(0) += add
@@ -139,6 +139,22 @@ impl Thread {
 }
 
 impl Profile {
+    // Search across all threads
+    pub fn reverse_search(&self, string_idx: StringIdx) -> HashSet<Vec<StringIdx>> {
+        // Add weights later
+        let mut traces = HashSet::new();
+        for thread in &self.threads {
+            for stack in &thread.samples.stack.inner {
+                let path = thread.path(*stack);
+                if path.contains(&string_idx) {
+                    traces.insert(path);
+                }
+            }
+        }
+
+        traces
+    }
+
     pub fn exclude_function(&mut self, regex: &str) {
         // TODO friendlier error handling
         let r = Regex::new(regex).expect("Invalid regex");
@@ -276,6 +292,12 @@ pub struct TypedVec<I, T> {
 pub struct Id<I> {
     idx: usize,
     _marker: PhantomData<I>,
+}
+
+impl<I> fmt::Display for Id<I> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({})", &self.idx)
+    }
 }
 
 impl<I> Id<I> {

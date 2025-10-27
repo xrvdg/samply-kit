@@ -5,15 +5,27 @@ use std::{
 };
 
 use itertools::Itertools;
-use profile_preprocessor::Profile;
+use profile_preprocessor::{Id, Profile};
 
 fn main() -> Result<(), io::Error> {
     let s = fs::read_to_string("./profile_prove_flattened_2.json")?;
     let profile: Profile = serde_json::from_str(&s)?;
 
     statistic(&profile);
+    reverse_search(&profile, 4713);
 
     Ok(())
+}
+
+fn reverse_search(profile: &Profile, string_idx: usize) {
+    let traces = profile.reverse_search(Id::new(string_idx));
+    for (i, trace) in traces.iter().enumerate() {
+        print!("{i}: ");
+        for func in trace {
+            print!("{} -> ", profile.shared.string_array[*func]);
+        }
+        println!();
+    }
 }
 
 fn statistic(profile: &Profile) {
@@ -30,9 +42,10 @@ fn statistic(profile: &Profile) {
                 .take(n)
                 .for_each(|(k, v)| {
                     println!(
-                        "{}({}%): {}",
+                        "{}({}%): {} {}",
                         v,
                         v * 100 / count,
+                        *k,
                         profile.shared.string_array[*k]
                     )
                 });
