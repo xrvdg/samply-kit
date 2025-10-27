@@ -11,11 +11,7 @@ use serde_json::Value;
 
 impl StackTable {
     /// Squash out excluded prefixes.
-    fn squash_excluded_parents(
-        &mut self,
-        id: Id<IndexStackTable>,
-        excluded: &HashSet<Id<IndexStackTable>>,
-    ) {
+    fn squash_excluded_parents(&mut self, id: StackIdx, excluded: &HashSet<StackIdx>) {
         if let Some(prefix_id) = self.prefix[id] {
             if excluded.iter().contains(&prefix_id) {
                 self.prefix[id] = self.prefix[prefix_id];
@@ -26,7 +22,7 @@ impl StackTable {
 
     /// Rewrite such that non-excluded frames do not point at excluded frames anymore.
     /// Excluded frames themselves stay included to not mess up the indexing and they act as a fast way to
-    fn exclude(&mut self, excluded: &HashSet<Id<IndexStackTable>>) {
+    fn exclude(&mut self, excluded: &HashSet<StackIdx>) {
         for i in 0..self.length {
             self.squash_excluded_parents(
                 // TODO better way to do this
@@ -45,44 +41,6 @@ impl StackTable {
 //     callee: IndexToFuncTable,
 // }
 
-// From I to T
-// TODO find name of what kind of structure this is.
-// two typed
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct TypedVec<I, T> {
-    inner: Vec<T>,
-    _marker: PhantomData<I>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Copy, Eq, Hash)]
-struct Id<I> {
-    idx: usize,
-    _marker: PhantomData<I>,
-}
-
-impl<I> Id<I> {
-    fn new(id: usize) -> Id<I> {
-        Id {
-            idx: id,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<I, T> Index<Id<I>> for TypedVec<I, T> {
-    type Output = T;
-
-    fn index(&self, index: Id<I>) -> &Self::Output {
-        &self.inner[index.idx]
-    }
-}
-
-impl<I, T> IndexMut<Id<I>> for TypedVec<I, T> {
-    fn index_mut(&mut self, index: Id<I>) -> &mut Self::Output {
-        &mut self.inner[index.idx]
-    }
-}
-
 // Can I make an index over the table and then do the access?
 // Feels closer to what you know
 // But what I really want is a typed vec
@@ -96,7 +54,7 @@ impl Thread {
     // We need edges
     // For now frame is mostly an indirection
     // Building the path this way is fine and then grouping it by 2
-    fn path(&self, id: Id<IndexStackTable>) -> Vec<Id<IndexFuncTable>> {
+    fn path(&self, id: StackIdx) -> Vec<FuncIdx> {
         let stack = &self.stack_table;
         let frame = &self.frame_table;
         let mut p = match stack.prefix[id] {
@@ -108,7 +66,7 @@ impl Thread {
         p
     }
 
-    fn paths(&self) -> Vec<Vec<Id<IndexFuncTable>>> {
+    fn paths(&self) -> Vec<Vec<FuncIdx>> {
         let stack = &self.stack_table;
         let mut p = Vec::with_capacity(stack.length);
         for i in 0..stack.length {
@@ -123,7 +81,7 @@ impl Thread {
     // TODO tree paths?
 
     fn exclude_function(&mut self, exclude_string_table: &HashSet<Id<IndexStringTable>>) {
-        let exclude_func_table: HashSet<_> = self
+        let exclude_func_table: HashSet<FuncIdx> = self
             .func_table
             .name
             .inner
@@ -132,7 +90,7 @@ impl Thread {
             .map(Id::new)
             .collect();
 
-        let exclude_frame_table: HashSet<_> = self
+        let exclude_frame_table: HashSet<FrameIdx> = self
             .frame_table
             .func
             .inner
@@ -141,7 +99,7 @@ impl Thread {
             .map(Id::new)
             .collect();
 
-        let exclude_stack_table: HashSet<Id<IndexStackTable>> = self
+        let exclude_stack_table: HashSet<StackIdx> = self
             .stack_table
             .frame
             .inner
@@ -158,7 +116,7 @@ impl Thread {
     /// Samples that point to an excluded stack entry needs to be reassigned to its parent.
     ///
     /// Run this after stack.exclude to prevent reassing the sample to another excluded stack entry
-    fn reattribute_samples(&mut self, excluded: &HashSet<Id<IndexStackTable>>) {
+    fn reattribute_samples(&mut self, excluded: &HashSet<StackIdx>) {
         for s in &mut self.samples.stack.inner {
             if excluded.iter().contains(s) {
                 if let Some(prefix) = self.stack_table.prefix[*s] {
@@ -174,7 +132,7 @@ impl Profile {
         // TODO friendlier error handling
         let r = Regex::new(regex).expect("Invalid regex");
 
-        let exclude_string_table: HashSet<Id<IndexStringTable>> = self
+        let exclude_string_table: HashSet<StringIdx> = self
             .shared
             .string_array
             .inner
@@ -242,31 +200,43 @@ struct IndexFuncTable;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
 struct IndexStringTable;
 
+// type SampleIdx = Id<IndexSampleTable>;
+type StackIdx = Id<IndexStackTable>;
+type FrameIdx = Id<IndexFrameTable>;
+type FuncIdx = Id<IndexFuncTable>;
+type StringIdx = Id<IndexStringTable>;
+
+type SampleVec<T> = TypedVec<IndexSampleTable, T>;
+type StackVec<T> = TypedVec<IndexStackTable, T>;
+type FrameVec<T> = TypedVec<IndexFrameTable, T>;
+type FuncVec<T> = TypedVec<IndexFuncTable, T>;
+type StringVec<T> = TypedVec<IndexStringTable, T>;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SampleTable {
-    stack: TypedVec<IndexSampleTable, Id<IndexStackTable>>,
-    weight: Option<TypedVec<IndexSampleTable, usize>>,
+    stack: SampleVec<StackIdx>,
+    weight: Option<SampleVec<usize>>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct StackTable {
-    prefix: TypedVec<IndexStackTable, Option<Id<IndexStackTable>>>,
-    frame: TypedVec<IndexStackTable, Id<IndexFrameTable>>,
+    prefix: StackVec<Option<StackIdx>>,
+    frame: StackVec<FrameIdx>,
     length: usize,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct FrameTable {
-    func: TypedVec<IndexFrameTable, Id<IndexFuncTable>>,
+    func: FrameVec<FuncIdx>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct FuncTable {
-    name: TypedVec<IndexFuncTable, Id<IndexStringTable>>,
+    name: FuncVec<StringIdx>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
@@ -274,7 +244,45 @@ struct FuncTable {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct ProfileSharedData {
     #[serde(rename = "stringArray")]
-    string_array: TypedVec<IndexStringTable, String>,
+    string_array: StringVec<String>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
+}
+
+// From I to T
+// TODO find name of what kind of structure this is.
+// two typed
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct TypedVec<I, T> {
+    inner: Vec<T>,
+    _marker: PhantomData<I>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Copy, Eq, Hash)]
+struct Id<I> {
+    idx: usize,
+    _marker: PhantomData<I>,
+}
+
+impl<I> Id<I> {
+    fn new(id: usize) -> Id<I> {
+        Id {
+            idx: id,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<I, T> Index<Id<I>> for TypedVec<I, T> {
+    type Output = T;
+
+    fn index(&self, index: Id<I>) -> &Self::Output {
+        &self.inner[index.idx]
+    }
+}
+
+impl<I, T> IndexMut<Id<I>> for TypedVec<I, T> {
+    fn index_mut(&mut self, index: Id<I>) -> &mut Self::Output {
+        &mut self.inner[index.idx]
+    }
 }
