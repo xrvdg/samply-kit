@@ -5,108 +5,46 @@ use std::{
 };
 
 use itertools::Itertools;
-use profile_preprocessor::{FuncIdx, Id, Profile};
+use profile_preprocessor::Profile;
 
 fn main() -> Result<(), io::Error> {
     let s = fs::read_to_string("./profile_prove_flattened_2.json")?;
     let profile: Profile = serde_json::from_str(&s)?;
 
-    let mut total_count = 0;
-    let mut total_cumulative = HashMap::new();
-    let mut total_own = HashMap::new();
-    for thread in profile.threads {
-        println!("{}", thread.name);
-
-        let count = thread.samples.total_weight();
-
-        let mut cumulative = HashMap::new();
-        let mut own = HashMap::new();
-        for (id, stack) in thread.samples.stack.inner.iter().enumerate() {
-            let add = match &thread.samples.weight {
-                Some(weigth_vec) => weigth_vec[Id::new(id)],
-                None => 1,
-            };
-            let path = thread.path(*stack);
-            if let Some(last) = path.last().copied() {
-                *own.entry(last).or_insert(0) += add
-            }
-            // Only count a function once in a sample. Recursion should not lead to multiple counts
-            let path: HashSet<FuncIdx> = HashSet::from_iter(path);
-            for func in path {
-                *cumulative.entry(func).or_insert(0) += add
-            }
-        }
-
-        println!("Own");
-        own.iter()
-            .sorted_by(|a, b| b.1.cmp(a.1))
-            .take(15)
-            .for_each(|(k, v)| {
-                println!(
-                    "{}({}%): {}",
-                    v,
-                    v * 100 / count,
-                    profile.shared.string_array[thread.func_table.name[*k]]
-                )
-            });
-
-        println!("cumulative");
-        cumulative
-            .iter()
-            .sorted_by(|a, b| b.1.cmp(a.1))
-            .take(15)
-            .for_each(|(k, v)| {
-                println!(
-                    "{}({}%): {}",
-                    v,
-                    v * 100 / count,
-                    profile.shared.string_array[thread.func_table.name[*k]]
-                )
-            });
-        println!();
-        total_count += count;
-
-        for (key, value) in cumulative {
-            *total_cumulative
-                .entry(thread.func_table.name[key])
-                .or_insert(0) += value;
-        }
-        for (key, value) in own {
-            *total_own.entry(thread.func_table.name[key]).or_insert(0) += value;
-        }
-    }
-
-    // Total not that useful
-    println!("Totals");
-    println!("Own");
-    total_own
-        .iter()
-        .sorted_by(|a, b| b.1.cmp(a.1))
-        .take(15)
-        .for_each(|(k, v)| {
-            println!(
-                "{}({}%): {}",
-                v,
-                v * 100 / total_count,
-                profile.shared.string_array[*k]
-            )
-        });
-
-    println!("cumulative");
-    total_cumulative
-        .iter()
-        .sorted_by(|a, b| b.1.cmp(a.1))
-        .take(15)
-        .for_each(|(k, v)| {
-            println!(
-                "{}({}%): {}",
-                v,
-                v * 100 / total_count,
-                profile.shared.string_array[*k]
-            )
-        });
+    statistic(&profile);
 
     Ok(())
+}
+
+fn statistic(profile: &Profile) {
+    // Showing the main thread and a single thread as all worker threads usually look the same when using rayon
+    for thread in profile.threads.iter().take(2) {
+        println!("{}", thread.name);
+
+        let count = thread.total_samples();
+        let (own, cumulative) = thread.sample_count();
+
+        let top15 = |it: HashMap<_, usize>| {
+            it.iter()
+                .sorted_by(|a, b| b.1.cmp(a.1))
+                .take(15)
+                .for_each(|(k, v)| {
+                    println!(
+                        "{}({}%): {}",
+                        v,
+                        v * 100 / count,
+                        profile.shared.string_array[*k]
+                    )
+                });
+        };
+
+        println!("Own");
+        top15(own);
+
+        println!("\nCumulative");
+        top15(cumulative);
+        println!();
+    }
 }
 
 fn graph(edge_set: HashSet<Vec<String>>) -> Result<(), io::Error> {

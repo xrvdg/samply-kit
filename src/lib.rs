@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     marker::PhantomData,
     ops::{Index, IndexMut},
 };
@@ -53,17 +53,41 @@ impl Thread {
         p
     }
 
-    pub fn paths(&self) -> Vec<Vec<FuncIdx>> {
-        let stack = &self.stack_table;
-        let mut p = Vec::with_capacity(stack.length);
-        for i in 0..stack.length {
-            // TODO better
-            p.push(self.path(Id::new(i)));
+    pub fn sample_count(
+        &self,
+    ) -> (
+        // Using StringIdx rather than FunctionIdx as it is stable across threads
+        HashMap<StringIdx, usize>, /*own */
+        HashMap<StringIdx, usize>, /*cumulative */
+    ) {
+        let mut cumulative = HashMap::new();
+        let mut own = HashMap::new();
+        for (id, stack) in self.samples.stack.inner.iter().enumerate() {
+            let add = match &self.samples.weight {
+                Some(weigth_vec) => weigth_vec[Id::new(id)],
+                None => 1,
+            };
+            let path: Vec<_> = self
+                .path(*stack)
+                .into_iter()
+                .map(|func_idx| self.func_table.name[func_idx])
+                .collect();
+
+            if let Some(last) = path.last().copied() {
+                *own.entry(last).or_insert(0) += add
+            }
+            // Only count a function once in a sample. Recursion should not lead to multiple counts
+            let path: HashSet<StringIdx> = HashSet::from_iter(path);
+            for func in path {
+                *cumulative.entry(func).or_insert(0) += add
+            }
         }
-        p
+        (own, cumulative)
     }
 
-    // fn stack_to_func(&self, id: IndexToStackTable) -> Vec<IndexToFuncTable> {}
+    pub fn total_samples(&self) -> usize {
+        self.samples.total_weight()
+    }
 
     // TODO tree paths?
 
