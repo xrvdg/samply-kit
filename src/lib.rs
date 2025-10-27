@@ -122,10 +122,11 @@ impl Thread {
 
     // TODO tree paths?
 
-    fn exclude_function(&mut self, exclude_string_table: &HashSet<IndexToStringTable>) {
+    fn exclude_function(&mut self, exclude_string_table: &HashSet<Id<IndexStringTable>>) {
         let exclude_func_table: HashSet<_> = self
             .func_table
             .name
+            .inner
             .iter()
             .positions(|id| exclude_string_table.contains(id))
             .map(Id::new)
@@ -173,11 +174,13 @@ impl Profile {
         // TODO friendlier error handling
         let r = Regex::new(regex).expect("Invalid regex");
 
-        let exclude_string_table: HashSet<_> = self
+        let exclude_string_table: HashSet<Id<IndexStringTable>> = self
             .shared
             .string_array
+            .inner
             .iter()
             .positions(|string| r.is_match(string))
+            .map(Id::new)
             .collect();
 
         for thread in &mut self.threads {
@@ -205,8 +208,6 @@ impl SampleTable {
     }
 }
 
-type IndexToStringTable = usize;
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Profile {
     threads: Vec<Thread>,
@@ -229,6 +230,7 @@ struct Thread {
 }
 
 // TODO make this a macro?
+// Better naming
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
 struct IndexSampleTable;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
@@ -237,6 +239,8 @@ struct IndexStackTable;
 struct IndexFrameTable;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
 struct IndexFuncTable;
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
+struct IndexStringTable;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SampleTable {
@@ -262,7 +266,7 @@ struct FrameTable {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct FuncTable {
-    name: Vec<IndexToStringTable>,
+    name: TypedVec<IndexFuncTable, Id<IndexStringTable>>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
@@ -270,7 +274,7 @@ struct FuncTable {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct ProfileSharedData {
     #[serde(rename = "stringArray")]
-    string_array: Vec<String>,
+    string_array: TypedVec<IndexStringTable, String>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
