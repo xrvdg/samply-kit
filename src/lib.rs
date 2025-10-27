@@ -40,10 +40,10 @@ impl StackTable {
     }
 }
 
-struct Edge {
-    caller: IndexToFuncTable,
-    callee: IndexToFuncTable,
-}
+// struct Edge {
+//     caller: IndexToFuncTable,
+//     callee: IndexToFuncTable,
+// }
 
 // From I to T
 // TODO find name of what kind of structure this is.
@@ -96,26 +96,24 @@ impl Thread {
     // We need edges
     // For now frame is mostly an indirection
     // Building the path this way is fine and then grouping it by 2
-    fn path(&self, id: Id<IndexStackTable>) -> Vec<IndexToFuncTable> {
+    fn path(&self, id: Id<IndexStackTable>) -> Vec<Id<IndexFuncTable>> {
         let stack = &self.stack_table;
         let frame = &self.frame_table;
         let mut p = match stack.prefix[id] {
             Some(prefix_id) => self.path(prefix_id),
             None => Vec::new(),
         };
-        p.push(frame.func[stack.frame[id]]);
+        let frame_id = stack.frame[id];
+        p.push(frame.func[frame_id]);
         p
     }
 
-    fn paths(&self) -> Vec<Vec<IndexToFuncTable>> {
+    fn paths(&self) -> Vec<Vec<Id<IndexFuncTable>>> {
         let stack = &self.stack_table;
         let mut p = Vec::with_capacity(stack.length);
         for i in 0..stack.length {
             // TODO better
-            p.push(self.path(Id {
-                idx: i,
-                _marker: PhantomData,
-            }));
+            p.push(self.path(Id::new(i)));
         }
         p
     }
@@ -130,6 +128,7 @@ impl Thread {
             .name
             .iter()
             .positions(|id| exclude_string_table.contains(id))
+            .map(Id::new)
             .collect();
 
         let exclude_frame_table: HashSet<_> = self
@@ -206,7 +205,6 @@ impl SampleTable {
     }
 }
 
-type IndexToFuncTable = usize;
 type IndexToStringTable = usize;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -230,12 +228,15 @@ struct Thread {
     other: BTreeMap<String, Value>,
 }
 
+// TODO make this a macro?
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
 struct IndexSampleTable;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
 struct IndexStackTable;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
 struct IndexFrameTable;
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
+struct IndexFuncTable;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SampleTable {
@@ -254,7 +255,7 @@ struct StackTable {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct FrameTable {
-    func: TypedVec<IndexFrameTable, IndexToFuncTable>,
+    func: TypedVec<IndexFrameTable, Id<IndexFuncTable>>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
