@@ -12,17 +12,22 @@ fn main() -> Result<(), io::Error> {
     let profile: Profile = serde_json::from_str(&s)?;
 
     statistic(&profile);
-    reverse_search(&profile, 4713);
+    reverse_search(&profile, 4645);
 
     Ok(())
 }
 
 fn reverse_search(profile: &Profile, string_idx: usize) {
     let traces = profile.reverse_search(Id::new(string_idx));
-    for (i, trace) in traces.iter().enumerate() {
-        print!("{i}: ");
+    for (i, (mut trace, count)) in traces
+        .into_iter()
+        .sorted_by(|a, b| b.1.cmp(&a.1))
+        .enumerate()
+    {
+        trace.reverse();
+        print!("{i}: ({count}) ");
         for func in trace {
-            print!("{} -> ", profile.shared.string_array[*func]);
+            print!("{} -> ", profile.shared.string_array[func]);
         }
         println!();
     }

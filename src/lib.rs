@@ -140,14 +140,18 @@ impl Thread {
 
 impl Profile {
     // Search across all threads
-    pub fn reverse_search(&self, string_idx: StringIdx) -> HashSet<Vec<StringIdx>> {
+    pub fn reverse_search(&self, string_idx: StringIdx) -> HashMap<Vec<StringIdx>, usize> {
         // Add weights later
-        let mut traces = HashSet::new();
+        let mut traces = HashMap::new();
         for thread in &self.threads {
-            for stack in &thread.samples.stack.inner {
+            for (id, stack) in thread.samples.stack.inner.iter().enumerate() {
+                let weight = match &thread.samples.weight {
+                    Some(weight_vec) => weight_vec[Id::new(id)],
+                    None => 1,
+                };
                 let path = thread.path(*stack);
                 if path.contains(&string_idx) {
-                    traces.insert(path);
+                    *traces.entry(path).or_insert(0) += weight;
                 }
             }
         }
