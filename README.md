@@ -20,6 +20,14 @@ Filter out unwanted frames from a profile.
 cargo run --bin preprocess -- <input.json> <output.json> <regex>
 ```
 
+**NOTE**: 
+Profiles recorded with samply are not complete yet they are missing the symbol table, which is needed for function names. 
+To complete the profile, load the profile with `samply` into the Firefox Profiler UI and download it from there. To download select the poorly named "Upload Local Profile" in the top corner and from there select download. 
+
+```bash
+samply record TARGET
+samply load profile.json.gz 
+```
 **Example:**
 ```bash
 # Remove all frames matching "rayon" from the profile
