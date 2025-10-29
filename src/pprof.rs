@@ -6,10 +6,10 @@ use std::{
 
 use argh::FromArgs;
 use itertools::Itertools;
-use profile_preprocessor::{Id, Profile};
+use samply_kit::{Id, Profile};
 
 #[derive(FromArgs, Debug)]
-#[argh(description = "Performan analysis on samply's profile")]
+#[argh(description = "pprof-style analysis for samply profiles")]
 struct Args {
     #[argh(positional)]
     file: String,
@@ -26,14 +26,14 @@ enum Command {
 
 #[derive(FromArgs, Debug)]
 #[argh(subcommand, name = "stat")]
-#[argh(description = "")]
+#[argh(description = "Statistics")]
 struct Statistics {}
 
 #[derive(FromArgs, Debug)]
 #[argh(subcommand, name = "lookup")]
-#[argh(description = "")]
+#[argh(description = "show all traces that contain function")]
 struct Lookup {
-    #[argh(positional)]
+    #[argh(positional, description = "function id. Can be found via stat")]
     id: usize,
 }
 
@@ -75,6 +75,7 @@ fn statistic(profile: &Profile) {
         let (own, cumulative) = thread.sample_count();
 
         let top = |n, it: HashMap<_, usize>| {
+            println!("#COUNT(%): FUNCTION_ID NAME");
             it.iter()
                 .sorted_by(|a, b| b.1.cmp(a.1))
                 .take(n)

@@ -1,3 +1,4 @@
+/// Small binary that has an non-trivial trace
 use std::{thread::sleep, time::Duration};
 
 #[inline(never)]

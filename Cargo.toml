@@ -1,5 +1,5 @@
 [package]
-name = "profile-preprocessor"
+name = "samply-kit"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,7 +9,7 @@ path = "src/tester.rs"
 
 [[bin]]
 name = "preprocess"
-path = "src/main.rs"
+path = "src/preprocess.rs"
 
 [[bin]]
 name = "pprof"

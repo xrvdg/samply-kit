@@ -1,13 +1,13 @@
 use argh::FromArgs;
-use profile_preprocessor::Profile;
+use samply_kit::Profile;
 use std::{fs, io};
 
 #[derive(FromArgs)]
-#[argh(description = "Tool for taking filtering out frames from profile")]
+#[argh(description = "Utility for filtering out frames from a profile")]
 struct CMDLine {
-    #[argh(positional)]
+    #[argh(positional, description = "input file")]
     input: String,
-    #[argh(positional)]
+    #[argh(positional, description = "output file")]
     output: String,
     #[argh(positional)]
     regex: String,
