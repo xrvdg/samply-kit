@@ -3,7 +3,6 @@ use std::{
     fmt,
     marker::PhantomData,
     ops::{Index, IndexMut},
-    path::Display,
 };
 
 use itertools::{self, Itertools};
