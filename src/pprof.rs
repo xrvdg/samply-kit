@@ -72,7 +72,7 @@ fn statistic(profile: &Profile) {
         println!("{}", thread.name);
 
         let count = thread.total_samples();
-        let (own, cumulative) = thread.sample_count();
+        let (own, cumulative) = profile.shared.sample_count(&thread.samples);
 
         let top = |n, it: HashMap<_, usize>| {
             println!("#COUNT(%): FUNCTION_ID NAME");

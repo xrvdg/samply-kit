@@ -38,11 +38,12 @@ impl StackTable {
 }
 
 impl Thread {
-    // Isn't stack structure more what we need?
-    // We need edges
-    // For now frame is mostly an indirection
-    // Building the path this way is fine and then grouping it by 2
-    // Using StringIdx rather than FunctionIdx as it is stable across threads
+    pub fn total_samples(&self) -> usize {
+        self.samples.total_weight()
+    }
+}
+
+impl ProfileSharedData {
     pub fn path(&self, id: StackIdx) -> Vec<StringIdx> {
         let stack = &self.stack_table;
         let frame = &self.frame_table;
@@ -57,17 +58,17 @@ impl Thread {
 
     pub fn sample_count(
         &self,
+        samples: &SampleTable,
     ) -> (
-        // Using StringIdx rather than FunctionIdx as it is stable across threads
         HashMap<StringIdx, usize>, /*own */
         HashMap<StringIdx, usize>, /*cumulative */
     ) {
         let mut cumulative = HashMap::new();
         let mut own = HashMap::new();
-        for (id, stack) in self.samples.stack.inner.iter().enumerate() {
+        for (id, stack) in samples.stack.inner.iter().enumerate() {
             // Shouldn't have to check the existence of weight everytime
-            let add = match &self.samples.weight {
-                Some(weigth_vec) => weigth_vec[Id::new(id)],
+            let add = match &samples.weight {
+                Some(weight_vec) => weight_vec[Id::new(id)],
                 None => 1,
             };
             let path: Vec<_> = self.path(*stack);
@@ -84,13 +85,7 @@ impl Thread {
         (own, cumulative)
     }
 
-    pub fn total_samples(&self) -> usize {
-        self.samples.total_weight()
-    }
-
-    // TODO tree paths?
-
-    fn exclude_function(&mut self, exclude_string_table: &HashSet<Id<IndexStringTable>>) {
+    pub fn excluded_stacks(&self, exclude_string_table: &HashSet<StringIdx>) -> HashSet<StackIdx> {
         let exclude_func_table: HashSet<FuncIdx> = self
             .func_table
             .name
@@ -109,28 +104,22 @@ impl Thread {
             .map(Id::new)
             .collect();
 
-        let exclude_stack_table: HashSet<StackIdx> = self
-            .stack_table
+        self.stack_table
             .frame
             .inner
             .iter()
             .positions(|id| exclude_frame_table.contains(id))
             .map(Id::new)
-            .collect();
-
-        self.stack_table.exclude(&exclude_stack_table);
-
-        self.reattribute_samples(&exclude_stack_table);
+            .collect()
     }
-
     /// Samples that point to an excluded stack entry needs to be reassigned to its parent.
     ///
-    /// Run this after stack.exclude to prevent reassing the sample to another excluded stack entry
-    fn reattribute_samples(&mut self, excluded: &HashSet<StackIdx>) {
-        for s in &mut self.samples.stack.inner {
+    /// Run this after stack.exclude to prevent reassigning the sample to another excluded stack entry
+    pub fn reattribute_samples(&self, samples: &mut SampleTable, excluded: &HashSet<StackIdx>) {
+        for s in &mut samples.stack.inner {
             if excluded.iter().contains(s) {
                 if let Some(prefix) = self.stack_table.prefix[*s] {
-                    *s = prefix
+                    *s = prefix;
                 }
             }
         }
@@ -148,7 +137,7 @@ impl Profile {
                     Some(weight_vec) => weight_vec[Id::new(id)],
                     None => 1,
                 };
-                let path = thread.path(*stack);
+                let path = self.shared.path(*stack);
                 if path.contains(&string_idx) {
                     *traces.entry(path).or_insert(0) += weight;
                 }
@@ -159,20 +148,24 @@ impl Profile {
     }
 
     pub fn exclude_function(&mut self, regex: &str) {
-        // TODO friendlier error handling
         let r = Regex::new(regex).expect("Invalid regex");
 
-        let exclude_string_table: HashSet<StringIdx> = self
-            .shared
-            .string_array
-            .inner
-            .iter()
-            .positions(|string| r.is_match(string))
-            .map(Id::new)
-            .collect();
+        let excluded = {
+            let shared = &self.shared;
+            let exclude_string_table: HashSet<StringIdx> = shared
+                .string_array
+                .inner
+                .iter()
+                .positions(|string| r.is_match(string))
+                .map(Id::new)
+                .collect();
+            shared.excluded_stacks(&exclude_string_table)
+        };
 
+        self.shared.stack_table.exclude(&excluded);
         for thread in &mut self.threads {
-            thread.exclude_function(&exclude_string_table);
+            self.shared
+                .reattribute_samples(&mut thread.samples, &excluded);
         }
     }
 
@@ -207,12 +200,6 @@ pub struct Profile {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Thread {
     pub samples: SampleTable,
-    #[serde(rename = "stackTable")]
-    pub stack_table: StackTable,
-    #[serde(rename = "frameTable")]
-    frame_table: FrameTable,
-    #[serde(rename = "funcTable")]
-    pub func_table: FuncTable,
     pub name: String,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
@@ -252,15 +239,15 @@ pub struct SampleTable {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StackTable {
-    prefix: StackVec<Option<StackIdx>>,
-    frame: StackVec<FrameIdx>,
+    pub prefix: StackVec<Option<StackIdx>>,
+    pub frame: StackVec<FrameIdx>,
     length: usize,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct FrameTable {
-    func: FrameVec<FuncIdx>,
+pub struct FrameTable {
+    pub func: FrameVec<FuncIdx>,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
@@ -276,6 +263,12 @@ pub struct FuncTable {
 pub struct ProfileSharedData {
     #[serde(rename = "stringArray")]
     pub string_array: StringVec<String>,
+    #[serde(rename = "stackTable")]
+    pub stack_table: StackTable,
+    #[serde(rename = "frameTable")]
+    pub frame_table: FrameTable,
+    #[serde(rename = "funcTable")]
+    pub func_table: FuncTable,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }
